@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>🎙️ Live Audio Test</title>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+  <h1>🎧 Live Audio Classroom</h1>
+
+  <!-- Role selection -->
+  <label><input type="radio" name="role" value="teacher"> Teacher</label>
+  <label><input type="radio" name="role" value="student" checked> Student</label>
+  <br><br>
+
+  <!-- Teacher controls -->
+  <button id="startBtn" disabled>Start Recording</button>
+  <button id="stopBtn" disabled>Stop Recording</button>
+
+  <!-- Status + Player -->
+  <p id="status">Please select a role</p>
+  <audio id="player" controls autoplay></audio>
+
+  <script>
+    const socket = io("http://192.168.0.148:5003");
+    let mediaRecorder, mediaSource, sourceBuffer, audioQueue = [];
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const status = document.getElementById("status");
+    const player = document.getElementById("player");
+
+    let role = "student"; // default
+    const session_id = "test123"; // demo session
+
+    // Role selection
+    document.querySelectorAll("input[name=role]").forEach(radio => {
+      radio.addEventListener("change", (e) => {
+        role = e.target.value;
+        if (role === "teacher") {
+          startBtn.disabled = false;
+          status.innerText = "🎤 Teacher mode: Ready to record";
+        } else {
+          startBtn.disabled = true;
+          stopBtn.disabled = true;
+          status.innerText = "🎧 Student mode: Waiting for teacher audio";
+        }
+      });
+    });
+
+    // Socket connect
+    socket.on("connect", () => {
+      status.innerText = "✅ Connected as " + role;
+      socket.emit("join_session", { session_id: session_id });
+    });
+
+    // ---------------- Teacher Mode ----------------
+    startBtn.onclick = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64data = reader.result.split(",")[1];
+            socket.emit("audio_chunk", { session_id: session_id, chunk: base64data });
+          };
+          reader.readAsDataURL(event.data);
+        }
+      };
+
+      mediaRecorder.start(500); // send every 500ms
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      status.innerText = "🎙️ Recording...";
+    };
+
+    stopBtn.onclick = () => {
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+      }
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      status.innerText = "🛑 Recording stopped.";
+    };
+
+    // ---------------- Student Mode ----------------
+    mediaSource = new MediaSource();
+    player.src = URL.createObjectURL(mediaSource);
+
+    mediaSource.addEventListener("sourceopen", () => {
+      sourceBuffer = mediaSource.addSourceBuffer('audio/webm; codecs=opus');
+      sourceBuffer.addEventListener("updateend", () => {
+        if (audioQueue.length > 0 && !sourceBuffer.updating) {
+          sourceBuffer.appendBuffer(audioQueue.shift());
+        }
+      });
+    });
+
+    socket.on("audio_chunk", (data) => {
+      const byteArray = Uint8Array.from(atob(data.chunk), c => c.charCodeAt(0));
+      if (sourceBuffer && !sourceBuffer.updating) {
+        sourceBuffer.appendBuffer(byteArray);
+      } else {
+        audioQueue.push(byteArray);
+      }
+    });
+  </script>
+</body>
+</html>
