@@ -2,38 +2,32 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>🎙️ Live Audio Test</title>
+  <title>🎙️ Live Audio Classroom</title>
   <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
 </head>
 <body>
   <h1>🎧 Live Audio Classroom</h1>
-
-  <!-- Role selection -->
   <label><input type="radio" name="role" value="teacher"> Teacher</label>
   <label><input type="radio" name="role" value="student" checked> Student</label>
   <br><br>
-
-  <!-- Teacher controls -->
   <button id="startBtn" disabled>Start Recording</button>
   <button id="stopBtn" disabled>Stop Recording</button>
-
-  <!-- Status + Player -->
   <p id="status">Please select a role</p>
-  <audio id="player" controls autoplay></audio>
+  <audio id="player" controls autoplay></audio><br>
+  <a id="downloadLink" href="#" style="display:none;" download>⬇️ Download MP3</a>
 
   <script>
-    const socket = io("http://192.168.0.148:5003");
+    const socket = io("http://127.0.0.1:5003"); // use localhost for testing
     let mediaRecorder, mediaSource, sourceBuffer, audioQueue = [];
-
     const startBtn = document.getElementById("startBtn");
     const stopBtn = document.getElementById("stopBtn");
     const status = document.getElementById("status");
     const player = document.getElementById("player");
+    const downloadLink = document.getElementById("downloadLink");
+    let role = "student";
+    const session_id = "test123";
 
-    let role = "student"; // default
-    const session_id = "test123"; // demo session
-
-    // Role selection
+    // Role select
     document.querySelectorAll("input[name=role]").forEach(radio => {
       radio.addEventListener("change", (e) => {
         role = e.target.value;
@@ -48,17 +42,15 @@
       });
     });
 
-    // Socket connect
     socket.on("connect", () => {
       status.innerText = "✅ Connected as " + role;
       socket.emit("join_session", { session_id: session_id });
     });
 
-    // ---------------- Teacher Mode ----------------
+    // Teacher mode
     startBtn.onclick = async () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           const reader = new FileReader();
@@ -69,8 +61,7 @@
           reader.readAsDataURL(event.data);
         }
       };
-
-      mediaRecorder.start(500); // send every 500ms
+      mediaRecorder.start(500);
       startBtn.disabled = true;
       stopBtn.disabled = false;
       status.innerText = "🎙️ Recording...";
@@ -80,15 +71,15 @@
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         mediaRecorder.stop();
       }
+      socket.emit("stop_recording", { session_id: session_id });
       startBtn.disabled = false;
       stopBtn.disabled = true;
-      status.innerText = "🛑 Recording stopped.";
+      status.innerText = "🛑 Recording stopped. Converting...";
     };
 
-    // ---------------- Student Mode ----------------
+    // Student mode (live playback)
     mediaSource = new MediaSource();
     player.src = URL.createObjectURL(mediaSource);
-
     mediaSource.addEventListener("sourceopen", () => {
       sourceBuffer = mediaSource.addSourceBuffer('audio/webm; codecs=opus');
       sourceBuffer.addEventListener("updateend", () => {
@@ -97,7 +88,6 @@
         }
       });
     });
-
     socket.on("audio_chunk", (data) => {
       const byteArray = Uint8Array.from(atob(data.chunk), c => c.charCodeAt(0));
       if (sourceBuffer && !sourceBuffer.updating) {
@@ -105,6 +95,13 @@
       } else {
         audioQueue.push(byteArray);
       }
+    });
+
+    // Recording ready
+    socket.on("recording_ready", (data) => {
+      status.innerText = "✅ Recording converted!";
+      downloadLink.href = "http://127.0.0.1:5003" + data.file;
+      downloadLink.style.display = "block";
     });
   </script>
 </body>
