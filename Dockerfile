@@ -1,20 +1,23 @@
 # Use Python base image
 FROM python:3.11-slim
 
-# Install ffmpeg
-RUN apt-get update && apt-get install -y ffmpeg
+# Install system dependencies (ffmpeg for pydub)
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Copy project files
-COPY . .
+# Copy requirements
+COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose Railway port
-EXPOSE 8080
+# Copy project files
+COPY . .
 
-# Start server
+# Expose port
+EXPOSE 5000
+
+# Run the server
 CMD ["python", "server.py"]
